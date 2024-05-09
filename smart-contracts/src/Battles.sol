@@ -60,7 +60,7 @@ contract Battles is Context {
     mapping(bytes32 => bool) _isActive;
 
     // creator => battleIds
-    mapping(address => uint256[]) _creatorToBattles;
+    mapping(address => uint256[]) _creatorToBattleIds;
 
     event CreateBattle(
         address indexed creator,
@@ -77,11 +77,17 @@ contract Battles is Context {
         duration = _duration;
     }
 
+    modifier onlyOption(BattleOption option) {
+        require(BattleOption.Nil != option, "Error: Wrong option");
+        _;
+    }
+
     function createBattle(
         BattleManifest calldata manifest,
         BattleMode mode,
+        BattleOption option,
         uint256 amount
-    ) external {
+    ) external onlyOption(option) {
         require(amount >= minCreationStake, "Error: Inssuficient amount input");
         (bytes32 hash, bool active) = generateHash(manifest);
         require(!active, "Error: Manifest is already active");
@@ -92,30 +98,58 @@ contract Battles is Context {
         unchecked {
             battleIds++;
         }
-
         uint256 id = battleIds;
+
+        (uint256 option0Count, uint256 option1Count) = option ==
+            BattleOption.Option0
+            ? (1, 0)
+            : (0, 1);
+
         battles[id] = BattleData({
             creator: _msgSender(),
             mode: mode,
             manifest: manifest,
-            amountRaised: 0,
-            option0Count: 0,
-            option1Count: 0,
+            amountRaised: amount,
+            option0Count: option0Count,
+            option1Count: option1Count,
             startTimestamp: uint16(block.timestamp),
             closeTimestamp: uint16(block.timestamp) + duration,
             aPIRequestId: 0,
             winner: BattleOption.Nil
         });
 
-        _creatorToBattles[_msgSender()].push(id);
+        _creatorToBattleIds[_msgSender()].push(id);
 
         emit CreateBattle(_msgSender(), mode, id, hash, manifest, amount);
     }
 
+    function makePrediction(
+        uint256 battleId,
+        BattleOption option,
+        uint256 amount
+    ) external onlyOption(option) {}
+
     function getCreations(
         address creator
-    ) external view returns (uint256[] memory) {
-        return _creatorToBattles[creator];
+    ) external view returns (BattleData[] memory creations) {
+        uint256 len = _creatorToBattleIds[creator].length;
+        creations = new BattleData[](uint32(len));
+        uint256 index;
+
+        for (uint256 i; i < len; ) {
+            index = _creatorToBattleIds[creator][i];
+            creations[i] = battles[index];
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function getCreationByIndex(
+        address creator,
+        uint256 index
+    ) external view returns (BattleData memory) {
+        return battles[_creatorToBattleIds[creator][index]];
     }
 
     function getPredictions(
