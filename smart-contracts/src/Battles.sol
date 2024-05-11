@@ -45,6 +45,7 @@ contract Battles is Context {
     uint256 public battleIds;
     uint256 public minBetAmount;
     uint16 public duration;
+    uint16 public maxDurationCount; // like 52 weeks yearly
     IERC20 public token;
 
     // user => battleId => UserPrediction
@@ -53,8 +54,11 @@ contract Battles is Context {
     // battleId => BattleData
     mapping(uint256 => BattleData) public battles;
 
-    // hash to isActive (bool)
-    mapping(bytes32 => bool) _isActive;
+    // hash to index to stat time
+    mapping(bytes32 => mapping(uint256 => uint16)) _schedules;
+
+    // hash to count
+    mapping(bytes32 => uint256) _counts;
 
     // creator => battleIds
     mapping(address => uint256[]) _creatorToBattleIds;
@@ -81,10 +85,16 @@ contract Battles is Context {
         uint256 timestamp
     );
 
-    constructor(address _token, uint256 _minBetAmount, uint16 _duration) {
+    constructor(
+        address _token,
+        uint256 _minBetAmount,
+        uint16 _duration,
+        uint16 _maxDurationCount
+    ) {
         token = IERC20(_token);
         minBetAmount = _minBetAmount;
         duration = _duration;
+        maxDurationCount = _maxDurationCount;
     }
 
     modifier validBet(BattleOption option, uint256 amount) {
@@ -97,18 +107,30 @@ contract Battles is Context {
         BattleManifest calldata manifest,
         BattleType battleType,
         BattleOption option,
-        uint256 amount
+        uint256 amount,
+        uint16 secondsBeforeStart
     ) external validBet(option, amount) {
-        (bytes32 hash, bool active) = generateHash(manifest, battleType);
+        (bytes32 hash, bool active) = generateHash(
+            manifest,
+            battleType,
+            secondsBeforeStart
+        );
         require(!active, "Error: Manifest is already active");
 
         token.safeTransferFrom(_msgSender(), address(this), amount);
-        _isActive[hash] = true;
 
+        uint16 startTime = uint16(block.timestamp) + secondsBeforeStart;
+        uint256 count = _counts[hash];
+        unchecked {
+            _counts[hash]++;
+        }
+
+        _schedules[hash][count] = startTime;
+
+        uint256 id = battleIds;
         unchecked {
             battleIds++;
         }
-        uint256 id = battleIds;
 
         (uint256 option0Count, uint256 option1Count) = option ==
             BattleOption.Option0
@@ -122,8 +144,8 @@ contract Battles is Context {
             prizePool: amount,
             option0Count: option0Count,
             option1Count: option1Count,
-            startTimestamp: uint16(block.timestamp),
-            closeTimestamp: uint16(block.timestamp) + duration,
+            startTimestamp: startTime,
+            closeTimestamp: startTime + duration,
             aPIRequestId: 0,
             winOption: BattleOption.Nil
         });
@@ -178,18 +200,6 @@ contract Battles is Context {
         emit ResolveBattle(battleId, winOption, aPIRequestId, block.timestamp);
     }
 
-    function _dummyChainlinkFunc(
-        uint16 start,
-        uint16 close
-    ) private view returns (BattleOption, uint256) {
-        uint256 aPIRequestId = close - start + block.timestamp;
-        if (uint16(block.timestamp) < close)
-            return (BattleOption.Nil, aPIRequestId);
-        if ((close - start) % 2 == 0)
-            return (BattleOption.Option0, aPIRequestId);
-        return (BattleOption.Option1, aPIRequestId);
-    }
-
     function getCreations(
         address creator
     ) external view returns (BattleData[] memory creations) {
@@ -222,8 +232,9 @@ contract Battles is Context {
 
     function generateHash(
         BattleManifest calldata manifest,
-        BattleType battleType
-    ) public view returns (bytes32 hash, bool) {
+        BattleType battleType,
+        uint16 startTime
+    ) public view returns (bytes32 hash, bool isOpen) {
         // Sort from smallest to biggest
         (string memory a, string memory b) = keccak256(
             abi.encodePacked(manifest.option0Id)
@@ -231,6 +242,39 @@ contract Battles is Context {
             ? (manifest.option0Id, manifest.option1Id)
             : (manifest.option1Id, manifest.option0Id);
         hash = keccak256(abi.encodePacked(a, b, battleType));
-        return (hash, _isActive[hash]);
+
+        uint256 count = _counts[hash];
+        uint16 _maxDurationCount = uint16(maxDurationCount);
+        uint16 session;
+        uint16 start;
+        uint256 index = _maxDurationCount > count ? count : _maxDurationCount;
+        isOpen = true;
+
+        for (uint256 i = index - 1; i >= 0; ) {
+            start = _schedules[hash][i];
+            unchecked {
+                session = start + duration;
+                if (
+                    (start < startTime && session > startTime) ||
+                    (startTime < start && startTime + duration > start)
+                ) {
+                    isOpen = false;
+                    break;
+                }
+                --i;
+            }
+        }
+    }
+
+    function _dummyChainlinkFunc(
+        uint16 start,
+        uint16 close
+    ) private view returns (BattleOption, uint256) {
+        uint256 aPIRequestId = close - start + block.timestamp;
+        if (uint16(block.timestamp) < close)
+            return (BattleOption.Nil, aPIRequestId);
+        if ((close - start) % 2 == 0)
+            return (BattleOption.Option0, aPIRequestId);
+        return (BattleOption.Option1, aPIRequestId);
     }
 }
