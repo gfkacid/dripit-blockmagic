@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model artist_spotify_stats {
+  id          Int       @id @default(autoincrement())
+  artist_id   Int
+  total_plays Int
+  followers   Int
+  updated_at  DateTime? @db.DateTime(0)
+  artists     artists   @relation(fields: [artist_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "artist_spotify_stats_ibfk_1")
+
+  @@index([artist_id], map: "artist_id")
+}
+
+model artists {
+  id                                Int                    @id @default(autoincrement())
+  spotify_id                        String                 @db.VarChar(50)
+  name                              String                 @db.VarChar(50)
+  slug                              String                 @db.VarChar(50)
+  image                             String                 @db.VarChar(1000)
+  bio                               String?                @db.Text
+  artist_spotify_stats              artist_spotify_stats[]
+  battles_battles_sideA_idToartists battles[]              @relation("battles_sideA_idToartists")
+  battles_battles_sideB_idToartists battles[]              @relation("battles_sideB_idToartists")
+  spodity_weekly_plays              spodity_weekly_plays[]
+}
+
+model battles {
+  id                                Int         @id @default(autoincrement())
+  type                              Int         @db.TinyInt
+  status                            Int         @db.TinyInt
+  sideA_id                          Int
+  sideB_id                          Int
+  amountA                           BigInt
+  amountB                           BigInt
+  total                             BigInt
+  start_date                        DateTime    @db.DateTime(0)
+  end_date                          DateTime    @db.DateTime(0)
+  created_by                        Int
+  artists_battles_sideA_idToartists artists     @relation("battles_sideA_idToartists", fields: [sideA_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "battles_ibfk_1")
+  artists_battles_sideB_idToartists artists     @relation("battles_sideB_idToartists", fields: [sideB_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "battles_ibfk_2")
+  users                             users       @relation(fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "battles_ibfk_3")
+  positions                         positions[]
+
+  @@index([created_by], map: "created_by")
+  @@index([sideA_id], map: "sideA_id")
+  @@index([sideB_id], map: "sideB_id")
+}
+
+model claims {
+  id          Int       @id @default(autoincrement())
+  position_id Int
+  amount      BigInt?
+  claimed_at  DateTime? @db.DateTime(0)
+  user_id     Int
+  positions   positions @relation(fields: [position_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "claims_ibfk_1")
+  users       users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "claims_ibfk_2")
+
+  @@index([position_id], map: "position_id")
+  @@index([user_id], map: "user_id")
+}
+
+model positions {
+  id         Int       @id @default(autoincrement())
+  battle_id  Int
+  user_id    Int
+  side       Boolean   @db.Bit(1)
+  amount     BigInt
+  created_at DateTime  @db.DateTime(0)
+  won        Boolean   @db.Bit(1)
+  updated_at DateTime? @db.DateTime(0)
+  claims     claims[]
+  battles    battles   @relation(fields: [battle_id], references: [id], onDelete: NoAction, map: "positions_ibfk_1")
+  users      users     @relation(fields: [user_id], references: [id], onDelete: NoAction, map: "positions_ibfk_2")
+
+  @@index([battle_id], map: "battle_id")
+  @@index([user_id], map: "user_id")
+}
+
+model spodity_weekly_plays {
+  id          Int      @id @default(autoincrement())
+  artist_id   Int
+  total_plays Int
+  start_date  DateTime @db.DateTime(0)
+  end_date    DateTime @db.DateTime(0)
+  artists     artists  @relation(fields: [artist_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "spodity_weekly_plays_ibfk_1")
+
+  @@index([artist_id], map: "artist_id")
+}
+
+model users {
+  id              Int         @id @default(autoincrement())
+  email           String      @db.VarChar(50)
+  login_type      Int
+  username        String      @db.VarChar(50)
+  avatar          String?     @db.VarChar(1000)
+  wallet          String      @db.Char(42)
+  referred_by     Int?
+  auth_identifier String      @db.VarChar(100)
+  battles         battles[]
+  claims          claims[]
+  positions       positions[]
+}
