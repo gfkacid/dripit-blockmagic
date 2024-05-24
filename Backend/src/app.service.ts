@@ -23,26 +23,4 @@ export class AppService {
   async createUser(data: User) {
     return await prisma.users.create({ data });
   }
-
-  async validateUser(email: string, password: string) {
-    const user = await prisma.users.findFirst({
-      where: {
-        email,
-      },
-    });
-
-    if (!user) {
-      return null;
-    }
-
-    const isPasswordValid = await bcrypt.compare(
-      password,
-      user.auth_identifier,
-    );
-    if (!isPasswordValid) {
-      return null;
-    }
-
-    return user;
-  }
 }

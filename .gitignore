@@ -1,0 +1,16 @@
+# env files
+Backend/.env
+Frontend/.env
+
+# node_modules
+Backend/node_modules
+Frontend/node_modules
+
+# build files
+Backend/build
+Frontend/build
+
+# dist files
+Backend/dist
+Backend/dist/
+Frontend/dist

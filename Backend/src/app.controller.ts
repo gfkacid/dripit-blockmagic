@@ -12,15 +12,6 @@ export class AppController {
     return await this.appService.getUsers();
   }
 
-  @Post(userRoutes.login)
-  async login(@Body() body: { email: string; password: string }) {
-    const user = await this.appService.validateUser(body.email, body.password);
-    if (!user) {
-      return { message: 'Invalid credentials' };
-    }
-    return user;
-  }
-
   @Post(userRoutes.isEmailUsed)
   async isEmailUsed(@Body() data: { email: string }) {
     return await this.appService.emailExist(data.email);
