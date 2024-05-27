@@ -1,0 +1,13 @@
+import { Controller, Post, Body } from "@nestjs/common";
+import { BattlesService } from "./battles.service";
+import { battlesRoutes } from "../routes/battles.routes";
+
+@Controller(battlesRoutes.main)
+export class BattlesController {
+  constructor(private readonly battlesService: BattlesService) {}
+
+  @Post(battlesRoutes.resolveBattle)
+  async resolveBattle(@Body() data: { id: number }) {
+    return await this.battlesService.resolveBattle(data.id);
+  }
+}
