@@ -1,4 +1,4 @@
-import { getSongStatsParams } from "./sontStats.types";
+import { getSongStatsParams } from "./songStats.types";
 
 export const sourcesEnum = {
   spotify: "spotify",

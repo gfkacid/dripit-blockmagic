@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { getWinningBattle } from "./battles.functions";
+import { getBattleWinner } from "./battles.functions";
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -17,6 +17,16 @@ export class BattlesService {
       throw new BadRequestException(`Battle with ID ${battleId} not found`);
     }
 
-    return getWinningBattle(battleId, battleId);
+    return getBattleWinner(battle);
+  }
+
+  async getBattles() {
+    const battles = await prisma.battles.findMany();
+    return battles.map((battle) => ({
+      ...battle,
+      amountA: battle.amountA.toString(),
+      amountB: battle.amountB.toString(),
+      total: battle.total.toString(),
+    }));
   }
 }

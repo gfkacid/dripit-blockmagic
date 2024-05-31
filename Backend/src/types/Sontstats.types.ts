@@ -13,7 +13,7 @@ class platformStats {
   };
 }
 
-export class apiResponse {
+export class songstatsApiResponse {
   result: string;
   message: string;
   stats: platformStats[];

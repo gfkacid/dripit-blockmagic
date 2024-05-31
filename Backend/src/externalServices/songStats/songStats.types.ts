@@ -1,8 +1,8 @@
-import { sourcesEnum } from "./sontStats.constants";
+import { sourcesEnum } from "./songStats.constants";
 
 export class getSongStatsParams {
   start_date: string;
   end_date: string;
-  source: typeof sourcesEnum;
+  source: string;
   spotify_artist_id: string;
 }

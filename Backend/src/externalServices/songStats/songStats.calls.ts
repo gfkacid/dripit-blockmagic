@@ -1,6 +1,6 @@
 import axios from "axios";
-import { getSongStatsPayload } from "./sontStats.constants";
-import { getSongStatsParams } from "./sontStats.types";
+import { getSongStatsPayload } from "./songStats.constants";
+import { getSongStatsParams } from "./songStats.types";
 
 export const getSongStats = async (params: getSongStatsParams) => {
   try {
