@@ -15,4 +15,9 @@ export class BattlesController {
   async resolveBattle(@Body() data: { id: number }) {
     return await this.battlesService.resolveBattle(data.id);
   }
+
+  @Post(battlesRoutes.resolveBattles)
+  async resolveBattles(@Body() data: { ids: number[] }) {
+    return await this.battlesService.resolveBattlesBulk(data.ids);
+  }
 }

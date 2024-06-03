@@ -5,6 +5,7 @@ import { sourcesEnum } from "src/externalServices/songStats/songStats.constants"
 import { songstatsApiResponse } from "src/types/Sontstats.types";
 import { formatDateToYMD } from "src/helpers/date.helpers";
 import { PrismaClient } from "@prisma/client";
+import { ethers } from "ethers";
 
 const prisma = new PrismaClient();
 
@@ -45,4 +46,8 @@ export const getBattleWinner = async (battle: Battle) => {
   );
 
   return sideA_playcount > sideB_playcount ? 0 : 1;
+};
+
+export const stringToBytes = async (text: string) => {
+  return ethers.encodeBytes32String(text);
 };

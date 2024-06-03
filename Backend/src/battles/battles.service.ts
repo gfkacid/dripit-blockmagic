@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { getBattleWinner } from "./battles.functions";
+import { getBattleWinner, stringToBytes } from "./battles.functions";
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -18,6 +18,20 @@ export class BattlesService {
     }
 
     return getBattleWinner(battle);
+  }
+
+  async resolveBattlesBulk(battleIds: number[]) {
+    const results = battleIds.map(async (battleId) => {
+      const battle = await prisma.battles.findUnique({
+        where: {
+          id: battleId,
+        },
+      });
+      return getBattleWinner(battle);
+    });
+
+    const resultsString = results.join("");
+    return stringToBytes(resultsString);
   }
 
   async getBattles() {
