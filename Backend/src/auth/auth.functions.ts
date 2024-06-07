@@ -1,4 +1,3 @@
-import { Request } from "express";
 import * as jwt from "jsonwebtoken";
 import { SignMessageContent } from "./dto/auth.dto";
 

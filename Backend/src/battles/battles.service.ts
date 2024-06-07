@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable, Req } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { getBattleWinner, stringToBytes } from "./battles.functions";
 import { isRequestAuthorizedForUser } from "src/auth/auth.functions";
 import { PositionsService } from "src/positions/positions.service";
+import { getBattlesParameters } from "src/types/Battles.types";
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -37,9 +38,34 @@ export class BattlesService {
     return stringToBytes(resultsString);
   }
 
-  async getBattles(request: any) {
+  async getBattles(request: Request, filters: getBattlesParameters) {
     const authorizedUser = await isRequestAuthorizedForUser(request);
-    const battles = await prisma.battles.findMany();
+    const { artist, status, createdBy } = filters;
+    const where: any = {};
+
+    if (artist) {
+      where.OR = [
+        { artists_battles_sideA_idToartists: { id: artist } },
+        { artists_battles_sideB_idToartists: { id: artist } },
+      ];
+    }
+
+    if (status) {
+      where.status = parseInt(status, 10);
+    }
+
+    if (createdBy) {
+      where.created_by = parseInt(createdBy, 10);
+    }
+
+    const battles = await prisma.battles.findMany({
+      where,
+      include: {
+        artists_battles_sideA_idToartists: true,
+        artists_battles_sideB_idToartists: true,
+        users: true,
+      },
+    });
 
     if (authorizedUser) {
       const positions =

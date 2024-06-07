@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Req } from "@nestjs/common";
+import { Controller, Get, Post, Body, Query, Req } from "@nestjs/common";
 import { BattlesService } from "./battles.service";
 import { battlesRoutes } from "../routes/battles.routes";
 
@@ -7,8 +7,14 @@ export class BattlesController {
   constructor(private readonly battlesService: BattlesService) {}
 
   @Get()
-  async getBattles(@Req() req: Request) {
-    return await this.battlesService.getBattles(req);
+  async getBattles(
+    @Req() request: Request,
+    @Query("artist") artist?: string,
+    @Query("status") status?: string,
+    @Query("created_by") createdBy?: string
+  ) {
+    const filters = { artist, status, createdBy };
+    return await this.battlesService.getBattles(request, filters);
   }
 
   @Post(battlesRoutes.resolveBattle)

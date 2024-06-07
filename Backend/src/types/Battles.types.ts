@@ -11,3 +11,9 @@ export class Battle {
   end_date: Date;
   created_by: number;
 }
+
+export class getBattlesParameters {
+  artist?: string;
+  status?: string;
+  createdBy?: string;
+}
