@@ -1,8 +1,8 @@
-import { Injectable } from '@nestjs/common';
-import { AuthPayloadDto } from './dto/auth.dto';
-import { PrismaClient } from '@prisma/client';
-import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcryptjs';
+import { Injectable } from "@nestjs/common";
+import { AuthPayloadDto, SignMessageContent } from "./dto/auth.dto";
+import { PrismaClient } from "@prisma/client";
+import { JwtService } from "@nestjs/jwt";
+import * as bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
@@ -24,14 +24,14 @@ export class AuthService {
 
     const isPasswordValid = await bcrypt.compare(
       password,
-      user.auth_identifier,
+      user.auth_identifier
     );
     if (!isPasswordValid) {
       return null;
     }
 
     const { id } = user;
-    const signMessage = { id, email };
+    const signMessage: SignMessageContent = { id, email };
     return this.jwtService.sign(signMessage);
   }
 }
