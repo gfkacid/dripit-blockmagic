@@ -10,6 +10,25 @@ const prisma = new PrismaClient();
 @Injectable()
 export class BattlesService {
   constructor(private positionsService: PositionsService) {}
+  async getBattle(battleId: number) {
+    const battle = await prisma.battles.findUnique({
+      where: {
+        id: Number(battleId),
+      },
+    });
+
+    if (!battle) {
+      throw new BadRequestException(`Battle with ID ${battleId} not found`);
+    }
+
+    return {
+      ...battle,
+      amountA: battle.amountA.toString(),
+      amountB: battle.amountB.toString(),
+      total: battle.total.toString(),
+    };
+  }
+
   async resolveBattle(battleId: number) {
     const battle = await prisma.battles.findUnique({
       where: {

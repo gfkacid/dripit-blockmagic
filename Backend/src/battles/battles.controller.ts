@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, Req } from "@nestjs/common";
+import { Controller, Get, Post, Body, Query, Req, Param } from "@nestjs/common";
 import { BattlesService } from "./battles.service";
 import { battlesRoutes } from "../routes/battles.routes";
 
@@ -15,6 +15,11 @@ export class BattlesController {
   ) {
     const filters = { artist, status, createdBy };
     return await this.battlesService.getBattles(request, filters);
+  }
+
+  @Get(battlesRoutes.battleId)
+  async get(@Param("id") id: number) {
+    return await this.battlesService.getBattle(id);
   }
 
   @Post(battlesRoutes.resolveBattle)
