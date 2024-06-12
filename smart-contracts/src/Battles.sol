@@ -4,6 +4,7 @@ pragma solidity 0.8.20;
 import "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import "openzeppelin-contracts/contracts/utils/Context.sol";
 import "openzeppelin-contracts/contracts/access/Ownable.sol";
+import "openzeppelin-contracts/contracts/access/AccessControl.sol";
 
 enum BattleType {
     Artist,
@@ -11,12 +12,13 @@ enum BattleType {
 }
 
 enum BattleOption {
-    Nil,
+    Default,
     Option0,
     Option1
 }
 
 struct BattleManifest {
+    BattleType battleType;
     string option0Id;
     string option1Id;
 }
@@ -29,25 +31,29 @@ struct UserPrediction {
 
 struct BattleData {
     address creator;
-    BattleType battleType;
+    bool hasClaimedIncentive;
     BattleManifest manifest;
-    uint256 prizePool;
     uint256 option0Count;
     uint256 option1Count;
+    uint256 option0PrizePool;
+    uint256 option1PrizePool;
     uint64 startTimestamp;
     uint64 closeTimestamp;
     uint256 aPIRequestId;
     BattleOption winOption;
 }
 
-contract Battles is Ownable {
+contract Battles is AccessControl {
     using SafeERC20 for IERC20;
 
+    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
+
+    IERC20 public token;
     uint256 public battleIds;
     uint256 public minAmount;
-    uint64 public constant DURATION = 1 weeks;
-    uint64 public constant FUTURE_LIMIT = 2 weeks;
-    IERC20 public token;
+    uint64 public duration = 1 weeks;
+    uint64 public futureLimit = 2 weeks;
+    uint8 public marketMakerIncentive = 100; // 1% == 100
 
     // user => battleId => UserPrediction
     mapping(address => mapping(uint256 => UserPrediction)) _userToIdToPrediction;
@@ -58,8 +64,16 @@ contract Battles is Ownable {
     // hash to index to stat time
     mapping(bytes32 => uint64) _schedules;
 
-    // creator => battleIds
-    mapping(address => uint256[]) _creatorToBattleIds;
+    event ClaimMarketMakerIncentive(
+        uint256 indexed battleId,
+        uint256 incentive
+    );
+
+    event ClaimWin(
+        address indexed who,
+        uint256 indexed battleId,
+        uint256 payout
+    );
 
     event CreateBattle(
         address indexed creator,
@@ -97,17 +111,27 @@ contract Battles is Ownable {
         uint256 timestamp
     );
 
-    constructor(
-        address initialOwner,
-        address _token,
-        uint256 _minAmount
-    ) Ownable(initialOwner) {
+    event SetMinAmount(uint256 minAmount);
+
+    event SetDuration(uint64 duration);
+
+    event SetFutureLimit(uint64 futureLimit);
+
+    event SetMarketMakerIncentive(uint8 marketMakerIncentive);
+
+    constructor(address defaultAdmin, address _token, uint256 _minAmount) {
         token = IERC20(_token);
         minAmount = _minAmount;
+
+        _grantRole(DEFAULT_ADMIN_ROLE, defaultAdmin);
+        _grantRole(ADMIN_ROLE, defaultAdmin);
+
+        _setRoleAdmin(DEFAULT_ADMIN_ROLE, DEFAULT_ADMIN_ROLE);
+        _setRoleAdmin(ADMIN_ROLE, DEFAULT_ADMIN_ROLE);
     }
 
     modifier validParams(BattleOption option, uint256 amount) {
-        require(BattleOption.Nil != option, "Error: Wrong option");
+        require(BattleOption.Default != option, "Error: Wrong option");
         require(amount >= minAmount, "Error: Inssuficient amount input");
         _;
     }
@@ -121,31 +145,74 @@ contract Battles is Ownable {
         _;
     }
 
-    modifier previousPredictor(address who, uint256 battleId) {
+    modifier activePlayer(address who, uint256 battleId) {
         UserPrediction memory predictionMem = _userToIdToPrediction[who][
             battleId
         ];
         require(
-            predictionMem.option != BattleOption.Nil,
+            predictionMem.option != BattleOption.Default,
             "Error: Make a prediction instead"
         );
         _;
     }
 
+    function claimMarketMakerIncentives(
+        uint256[] calldata battleIds_
+    ) external {
+        uint256 incentive;
+        uint256 battleId;
+        uint256 length = battleIds_.length;
+        BattleData memory battleMem;
+
+        for (uint256 i; i < length; ) {
+            battleId = battleIds_[i];
+            incentive = getMarketMakerIncentive(battleId);
+            battleMem = _battles[battleId];
+            require(
+                !battleMem.hasClaimedIncentive && incentive > 0,
+                "Error: Invalid operation"
+            );
+            _battles[battleId].hasClaimedIncentive = true;
+            emit ClaimMarketMakerIncentive(battleId, incentive);
+            token.safeTransfer(battleMem.creator, incentive);
+
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function claimWin(address who, uint256[] calldata battleIds_) external {
+        uint256 payout;
+        uint256 battleId;
+        uint256 length = battleIds_.length;
+
+        for (uint256 i; i < length; ) {
+            battleId = battleIds_[i];
+            payout = getPayout(who, battleId);
+            require(
+                !_userToIdToPrediction[who][battleId].isClosed && payout > 0,
+                "Error: Invalid operation"
+            );
+            _userToIdToPrediction[who][battleId].isClosed = true;
+            emit ClaimWin(who, battleId, payout);
+            token.safeTransfer(who, payout);
+
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
     function createBattle(
         address creator,
         BattleManifest calldata manifest,
-        BattleType battleType,
         BattleOption option,
         uint256 amount,
         uint64 secondsBeforeStart
     ) external validParams(option, amount) {
         uint64 startTimestamp = uint64(block.timestamp) + secondsBeforeStart;
-        (bytes32 hash, bool active) = generateHash(
-            manifest,
-            battleType,
-            startTimestamp
-        );
+        (bytes32 hash, bool active) = generateHash(manifest, startTimestamp);
         require(!active, "Error: Manifest is already active");
 
         token.safeTransferFrom(creator, address(this), amount);
@@ -157,27 +224,37 @@ contract Battles is Ownable {
             battleIds++;
         }
 
-        (uint256 option0Count, uint256 option1Count) = option ==
-            BattleOption.Option0
-            ? (1, 0)
-            : (0, 1);
+        (
+            uint256 option0PrizePool,
+            uint256 option1PrizePool,
+            uint256 option0Count,
+            uint256 option1Count
+        ) = option == BattleOption.Option0
+                ? (amount, uint256(0), 1, 0)
+                : (uint256(0), amount, 0, 1);
 
         _battles[id] = BattleData({
             creator: creator,
-            battleType: battleType,
+            hasClaimedIncentive: false,
             manifest: manifest,
-            prizePool: amount,
+            option0PrizePool: option0PrizePool,
+            option1PrizePool: option1PrizePool,
             option0Count: option0Count,
             option1Count: option1Count,
             startTimestamp: startTimestamp,
-            closeTimestamp: startTimestamp + DURATION,
+            closeTimestamp: startTimestamp + duration,
             aPIRequestId: 0,
-            winOption: BattleOption.Nil
+            winOption: BattleOption.Default
         });
 
-        _creatorToBattleIds[creator].push(id);
+        emit CreateBattle(creator, manifest.battleType, id, hash, manifest);
 
-        emit CreateBattle(creator, battleType, id, hash, manifest);
+        _userToIdToPrediction[creator][id] = UserPrediction({
+            option: option,
+            amount: amount,
+            isClosed: false
+        });
+
         emit MakePrediction(creator, id, amount, option);
     }
 
@@ -202,15 +279,42 @@ contract Battles is Ownable {
         });
 
         unchecked {
-            battle.prizePool += amount;
             if (option == BattleOption.Option0) {
                 battle.option0Count++;
+                battle.option0PrizePool += amount;
             } else {
                 battle.option1Count++;
+                battle.option1PrizePool += amount;
             }
         }
 
         emit MakePrediction(who, battleId, amount, option);
+    }
+
+    function setMinAmount(uint256 _minAmount) external onlyRole(ADMIN_ROLE) {
+        minAmount = _minAmount;
+        emit SetMinAmount(_minAmount);
+    }
+
+    function setDuration(uint64 _duration) external onlyRole(ADMIN_ROLE) {
+        duration = _duration;
+        emit SetDuration(_duration);
+    }
+
+    function setFutureLimit(uint64 _futurelimit) external onlyRole(ADMIN_ROLE) {
+        futureLimit = _futurelimit;
+        emit SetFutureLimit(_futurelimit);
+    }
+
+    function setMarketMakerIncentive(
+        uint8 _marketMakerIncentive
+    ) external onlyRole(ADMIN_ROLE) {
+        require(
+            _marketMakerIncentive > 0 && _marketMakerIncentive <= 1000,
+            "Invalid input"
+        );
+        marketMakerIncentive = _marketMakerIncentive;
+        emit SetMarketMakerIncentive(_marketMakerIncentive);
     }
 
     function updateAmount(
@@ -218,7 +322,7 @@ contract Battles is Ownable {
         uint256 battleId,
         uint256 amount,
         bool topUp
-    ) external openWindow(battleId) previousPredictor(who, battleId) {
+    ) external openWindow(battleId) activePlayer(who, battleId) {
         BattleData storage battle = _battles[battleId];
         UserPrediction storage prediction = _userToIdToPrediction[who][
             battleId
@@ -226,10 +330,15 @@ contract Battles is Ownable {
         UserPrediction memory predictionMem = _userToIdToPrediction[who][
             battleId
         ];
+
         if (topUp) {
             token.safeTransferFrom(who, address(this), amount);
             unchecked {
-                battle.prizePool += amount;
+                if (predictionMem.option == BattleOption.Option0) {
+                    battle.option0PrizePool += amount;
+                } else {
+                    battle.option1PrizePool += amount;
+                }
                 prediction.amount += amount;
             }
         } else {
@@ -238,13 +347,21 @@ contract Battles is Ownable {
                 "Error: Insufficient balance"
             );
 
-            if (predictionMem.amount - amount == 0) {
+            if (predictionMem.amount == amount) {
                 prediction.isClosed = true;
+                if (predictionMem.option == BattleOption.Option0) {
+                    battle.option0Count--;
+                } else {
+                    battle.option1Count--;
+                }
             }
 
-            unchecked {
-                battle.prizePool -= amount;
-                prediction.amount -= amount;
+            prediction.amount -= amount;
+
+            if (predictionMem.option == BattleOption.Option0) {
+                battle.option0PrizePool -= amount;
+            } else {
+                battle.option1PrizePool -= amount;
             }
 
             token.safeTransfer(who, amount);
@@ -256,7 +373,7 @@ contract Battles is Ownable {
     function updateOption(
         address who,
         uint256 battleId
-    ) external openWindow(battleId) previousPredictor(who, battleId) {
+    ) external openWindow(battleId) activePlayer(who, battleId) {
         BattleData storage battle = _battles[battleId];
         UserPrediction memory prediction = _userToIdToPrediction[who][battleId];
 
@@ -265,6 +382,8 @@ contract Battles is Ownable {
                 battle.option0Count--;
                 battle.option1Count++;
             }
+            battle.option0PrizePool -= prediction.amount;
+            battle.option1PrizePool += prediction.amount;
             _userToIdToPrediction[who][battleId].option = BattleOption.Option1;
             emit UpdateOption(
                 who,
@@ -277,6 +396,8 @@ contract Battles is Ownable {
                 battle.option1Count--;
                 battle.option0Count++;
             }
+            battle.option1PrizePool -= prediction.amount;
+            battle.option0PrizePool += prediction.amount;
             _userToIdToPrediction[who][battleId].option = BattleOption.Option0;
             emit UpdateOption(
                 who,
@@ -287,19 +408,24 @@ contract Battles is Ownable {
         }
     }
 
-    function resolveBattle(uint256 battleId) external onlyOwner {
+    function resolveBattle(uint256 battleId) external onlyRole(ADMIN_ROLE) {
         BattleData memory battleMem = _battles[battleId];
         require(
-            battleMem.prizePool > 0 &&
+            battleMem.option0PrizePool + battleMem.option1PrizePool > 0 &&
                 uint64(block.timestamp) >= battleMem.closeTimestamp,
             "Error: Invalid operation"
         );
-        BattleData storage battleSto = _battles[battleId];
+        require(
+            battleMem.winOption == BattleOption.Default,
+            "Error: Battle closed already"
+        );
+
         (BattleOption winOption, uint256 aPIRequestId) = _dummyChainlinkFunc(
             battleMem.startTimestamp,
             battleMem.closeTimestamp
         );
 
+        BattleData storage battleSto = _battles[battleId];
         battleSto.winOption = winOption;
         battleSto.aPIRequestId = aPIRequestId;
 
@@ -312,30 +438,70 @@ contract Battles is Ownable {
         return _battles[battleId];
     }
 
-    function getCreations(
-        address creator
-    ) external view returns (BattleData[] memory creations) {
-        uint256 len = _creatorToBattleIds[creator].length;
-        creations = new BattleData[](uint32(len));
-        uint256 index;
+    function getMarketMakerIncentive(
+        uint256 battleId
+    ) public view returns (uint256) {
+        uint256 limit = 10000; // -> 100%
+        (uint256 prizePool, , ) = getPrizePoolAndOdds(battleId);
+        return ((prizePool * marketMakerIncentive) / limit);
+    }
 
-        for (uint256 i; i < len; ) {
-            index = _creatorToBattleIds[creator][i];
-            creations[i] = _battles[index];
-            unchecked {
-                ++i;
-            }
+    function getPrizePoolAndOdds(
+        uint256 battleId
+    )
+        public
+        view
+        returns (uint256 prizePool, uint256 option0Odd, uint256 option1Odd)
+    {
+        BattleData memory battle = _battles[battleId];
+        unchecked {
+            prizePool = battle.option0PrizePool + battle.option1PrizePool;
         }
+
+        uint256 scale = 1e18;
+        uint256 lot = prizePool * scale;
+
+        option0Odd = battle.option0PrizePool == 0
+            ? 0
+            : lot / battle.option0PrizePool;
+        option1Odd = battle.option1PrizePool == 0
+            ? 0
+            : lot / battle.option1PrizePool;
     }
 
-    function getCreationByIndex(
-        address creator,
-        uint256 index
-    ) external view returns (BattleData memory) {
-        return _battles[_creatorToBattleIds[creator][index]];
+    function getPayout(
+        address who,
+        uint256 battleId
+    ) public view returns (uint256) {
+        UserPrediction memory predictionMem = _userToIdToPrediction[who][
+            battleId
+        ];
+        BattleData memory battleMem = _battles[battleId];
+
+        if (
+            battleMem.winOption == BattleOption.Default ||
+            battleMem.winOption != predictionMem.option
+        ) {
+            return 0;
+        }
+
+        uint256 _marketMakerIncentive = uint256(marketMakerIncentive);
+        (, uint256 option0Odd, uint256 option1Odd) = getPrizePoolAndOdds(
+            battleId
+        );
+
+        uint256 limit = 10000; // -> 100%
+        uint256 scale = 1e18;
+
+        if (predictionMem.option == BattleOption.Option0) {
+            return ((((option0Odd * predictionMem.amount) *
+                (limit - _marketMakerIncentive)) / limit) / scale);
+        }
+        return ((((option1Odd * predictionMem.amount) *
+            (limit - _marketMakerIncentive)) / limit) / scale);
     }
 
-    function getPredictionByBattleId(
+    function getUserPrediction(
         address user,
         uint256 battleId
     ) external view returns (UserPrediction memory) {
@@ -344,11 +510,10 @@ contract Battles is Ownable {
 
     function generateHash(
         BattleManifest calldata manifest,
-        BattleType battleType,
         uint64 startTimestamp
     ) public view returns (bytes32 hash, bool isActive) {
         require(
-            startTimestamp < uint64(block.timestamp) + FUTURE_LIMIT,
+            startTimestamp < uint64(block.timestamp) + futureLimit,
             "Error: Too far in the future"
         );
 
@@ -358,15 +523,15 @@ contract Battles is Ownable {
         ) < keccak256(abi.encodePacked(manifest.option1Id))
             ? (manifest.option0Id, manifest.option1Id)
             : (manifest.option1Id, manifest.option0Id);
-        hash = keccak256(abi.encodePacked(a, b, battleType));
+        hash = keccak256(abi.encodePacked(a, b, manifest.battleType));
 
         uint64 lastSchedule = _schedules[hash];
 
         if (
             (lastSchedule < startTimestamp &&
-                lastSchedule + DURATION > startTimestamp) ||
+                lastSchedule + duration > startTimestamp) ||
             (startTimestamp < lastSchedule &&
-                startTimestamp + DURATION > lastSchedule) ||
+                startTimestamp + duration > lastSchedule) ||
             lastSchedule == startTimestamp
         ) {
             isActive = true;
@@ -379,7 +544,7 @@ contract Battles is Ownable {
     ) private view returns (BattleOption, uint256) {
         uint256 aPIRequestId = close - start + block.timestamp;
         if (uint64(block.timestamp) < close)
-            return (BattleOption.Nil, aPIRequestId);
+            return (BattleOption.Default, aPIRequestId);
         if ((close - start) % 2 == 0)
             return (BattleOption.Option0, aPIRequestId);
         return (BattleOption.Option1, aPIRequestId);
