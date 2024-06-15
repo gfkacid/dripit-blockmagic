@@ -173,10 +173,7 @@ contract BattlesTicket is
         revert("Non-transferrable token");
     }
 
-    function setApprovalForAll(
-        address operator,
-        bool approved
-    ) public pure override(ERC1155) {
+    function setApprovalForAll(address, bool) public pure override(ERC1155) {
         revert("Non-transferrable token");
     }
 

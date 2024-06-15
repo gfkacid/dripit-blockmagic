@@ -69,4 +69,6 @@ Test Token - https://testnet.snowtrace.io/token/0x854381F2ea0c1E55D6823b908b1a02
 
 Test USDC - https://testnet.snowtrace.io/address/0x5425890298aed601595a70AB815c96711a31Bc65
 
-Battles - https://testnet.snowtrace.io/address/0xf74204f3f05114910bc1f6dedf1e0b70782a4bc7
+BattleTicket - https://testnet.snowtrace.io/address/0x62db543737e81ccff92f66e47d8a166dbe23765b
+
+Battles - https://testnet.snowtrace.io/address/0x3596AE0a46B67BA819926Ba6f4D3e59BfF659F1A
