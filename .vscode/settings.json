@@ -1,0 +1,8 @@
+{
+    "slither.solcPath": "",
+    "slither.hiddenDetectors": [
+        "shadowing-builtin",
+        "shadowing-local",
+        "weak-prng"
+    ]
+}

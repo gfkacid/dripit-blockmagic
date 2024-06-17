@@ -1,54 +1,18 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.20;
 
-import "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import "openzeppelin-contracts/contracts/utils/Context.sol";
-import "openzeppelin-contracts/contracts/access/Ownable.sol";
-import "openzeppelin-contracts/contracts/access/AccessControl.sol";
+import {SafeERC20, IERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
+import {IBattlesTicket} from "./interfaces/IBattlesTicket.sol";
+import {IBattles} from "./interfaces/IBattles.sol";
 
-enum BattleType {
-    Artist,
-    Track
-}
-
-enum BattleOption {
-    Default,
-    Option0,
-    Option1
-}
-
-struct BattleManifest {
-    BattleType battleType;
-    string option0Id;
-    string option1Id;
-}
-
-struct UserPrediction {
-    BattleOption option;
-    uint256 amount;
-    bool isClosed;
-}
-
-struct BattleData {
-    address creator;
-    bool hasClaimedIncentive;
-    BattleManifest manifest;
-    uint256 option0Count;
-    uint256 option1Count;
-    uint256 option0PrizePool;
-    uint256 option1PrizePool;
-    uint64 startTimestamp;
-    uint64 closeTimestamp;
-    uint256 aPIRequestId;
-    BattleOption winOption;
-}
-
-contract Battles is AccessControl {
+contract Battles is AccessControlEnumerable, IBattles {
     using SafeERC20 for IERC20;
 
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
 
-    IERC20 public token;
+    IERC20 public immutable token;
+    IBattlesTicket public immutable ticket;
     uint256 public battleIds;
     uint256 public minAmount;
     uint64 public duration = 1 weeks;
@@ -64,63 +28,14 @@ contract Battles is AccessControl {
     // hash to index to stat time
     mapping(bytes32 => uint64) _schedules;
 
-    event ClaimMarketMakerIncentive(
-        uint256 indexed battleId,
-        uint256 incentive
-    );
-
-    event ClaimWin(
-        address indexed who,
-        uint256 indexed battleId,
-        uint256 payout
-    );
-
-    event CreateBattle(
-        address indexed creator,
-        BattleType indexed battleType,
-        uint256 battleId,
-        bytes32 indexed hash,
-        BattleManifest manifest
-    );
-
-    event MakePrediction(
-        address indexed who,
-        uint256 indexed battleId,
-        uint256 amount,
-        BattleOption indexed option
-    );
-
-    event UpdateAmount(
-        address indexed who,
-        uint256 indexed battleId,
-        uint256 amount,
-        bool indexed topUp
-    );
-
-    event UpdateOption(
-        address indexed who,
-        uint256 indexed battleId,
-        BattleOption oldOption,
-        BattleOption newOption
-    );
-
-    event ResolveBattle(
-        uint256 indexed battleId,
-        BattleOption indexed winOption,
-        uint256 indexed aPIRequestId,
-        uint256 timestamp
-    );
-
-    event SetMinAmount(uint256 minAmount);
-
-    event SetDuration(uint64 duration);
-
-    event SetFutureLimit(uint64 futureLimit);
-
-    event SetMarketMakerIncentive(uint8 marketMakerIncentive);
-
-    constructor(address defaultAdmin, address _token, uint256 _minAmount) {
+    constructor(
+        address defaultAdmin,
+        address _token,
+        address _ticket,
+        uint256 _minAmount
+    ) {
         token = IERC20(_token);
+        ticket = IBattlesTicket(_ticket);
         minAmount = _minAmount;
 
         _grantRole(DEFAULT_ADMIN_ROLE, defaultAdmin);
@@ -139,7 +54,8 @@ contract Battles is AccessControl {
     modifier openWindow(uint256 battleId) {
         BattleData memory data = _battles[battleId];
         require(
-            data.startTimestamp > uint64(block.timestamp),
+            data.startTimestamp < uint64(block.timestamp) &&
+                data.closeTimestamp > uint64(block.timestamp),
             "Error: Entry is not open"
         );
         _;
@@ -263,32 +179,19 @@ contract Battles is AccessControl {
         uint256 battleId,
         BattleOption option,
         uint256 amount
-    ) external openWindow(battleId) validParams(option, amount) {
-        BattleData storage battle = _battles[battleId];
-        require(
-            _userToIdToPrediction[who][battleId].amount == 0,
-            "Update entries instead"
-        );
-
+    ) external {
         token.safeTransferFrom(who, address(this), amount);
+        _makePrediction(who, battleId, option, amount);
+    }
 
-        _userToIdToPrediction[who][battleId] = UserPrediction({
-            option: option,
-            amount: amount,
-            isClosed: false
-        });
-
-        unchecked {
-            if (option == BattleOption.Option0) {
-                battle.option0Count++;
-                battle.option0PrizePool += amount;
-            } else {
-                battle.option1Count++;
-                battle.option1PrizePool += amount;
-            }
-        }
-
-        emit MakePrediction(who, battleId, amount, option);
+    function makePredictionWithTickets(
+        address who,
+        uint256 battleId,
+        BattleOption option,
+        uint256[] calldata ids
+    ) external {
+        uint256 amount = ticket.burnTickets(ids, who);
+        _makePrediction(who, battleId, option, amount);
     }
 
     function setMinAmount(uint256 _minAmount) external onlyRole(ADMIN_ROLE) {
@@ -548,5 +451,36 @@ contract Battles is AccessControl {
         if ((close - start) % 2 == 0)
             return (BattleOption.Option0, aPIRequestId);
         return (BattleOption.Option1, aPIRequestId);
+    }
+
+    function _makePrediction(
+        address who,
+        uint256 battleId,
+        BattleOption option,
+        uint256 amount
+    ) private openWindow(battleId) validParams(option, amount) {
+        BattleData storage battle = _battles[battleId];
+        require(
+            _userToIdToPrediction[who][battleId].amount == 0,
+            "Update entries instead"
+        );
+
+        _userToIdToPrediction[who][battleId] = UserPrediction({
+            option: option,
+            amount: amount,
+            isClosed: false
+        });
+
+        unchecked {
+            if (option == BattleOption.Option0) {
+                battle.option0Count++;
+                battle.option0PrizePool += amount;
+            } else {
+                battle.option1Count++;
+                battle.option1PrizePool += amount;
+            }
+        }
+
+        emit MakePrediction(who, battleId, amount, option);
     }
 }
