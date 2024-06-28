@@ -8,15 +8,10 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IERC20, SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IBattlesTicket} from "./interfaces/IBattlesTicket.sol";
 
-contract BattlesTicket is
-    AccessControlEnumerable,
-    ERC1155Supply,
-    IBattlesTicket,
-    ReentrancyGuard
-{
+contract BattlesTicket is AccessControlEnumerable, ERC1155Supply, IBattlesTicket, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    IERC20 public immutable usdc;
+    IERC20 public immutable token;
 
     string public name;
     string public symbol;
@@ -33,7 +28,7 @@ contract BattlesTicket is
         string memory _name,
         string memory _symbol,
         string memory _uri,
-        address _usdc,
+        address _token,
         address _controller,
         address _admin,
         uint64 _minExpiry
@@ -41,7 +36,7 @@ contract BattlesTicket is
         name = _name;
         symbol = _symbol;
 
-        usdc = IERC20(_usdc);
+        token = IERC20(_token);
         minExpiry = _minExpiry;
 
         _grantRole(DEFAULT_ADMIN_ROLE, _controller);
@@ -60,15 +55,12 @@ contract BattlesTicket is
 
     function mintTickets(
         address issuer,
-        address[] calldata recipients,
-        uint256[] calldata ticketPrices,
-        uint64[] calldata ticketExpirations
+        address[] memory recipients,
+        uint256[] memory ticketPrices,
+        uint64[] memory ticketExpirations
     ) external nonReentrant returns (uint256[] memory ids) {
         uint256 length = recipients.length;
-        require(
-            length == ticketPrices.length && length == ticketExpirations.length,
-            "Unequal array length"
-        );
+        require(length == ticketPrices.length && length == ticketExpirations.length, "Unequal array length");
         ids = new uint256[](length);
         uint256 currentID = _currentID;
         uint256 totalCost;
@@ -78,7 +70,7 @@ contract BattlesTicket is
         uint64 ticketExpiration;
         uint64 minExpiry_ = minExpiry;
         uint64 expirationDate;
-        for (uint256 i; i < length; ) {
+        for (uint256 i; i < length;) {
             currentID++;
             ids[i] = currentID;
             id = ids[i];
@@ -87,61 +79,37 @@ contract BattlesTicket is
             ticketPrice = ticketPrices[i];
             require(ticketPrice != 0, "Null value for ticketPrice");
             ticketExpiration = ticketExpirations[i];
-            require(
-                ticketExpiration >= minExpiry_,
-                "Min expiry for ticketExpiration not met"
-            );
-            totalCost += ticketPrice;
+            require(ticketExpiration >= minExpiry_, "Min expiry for ticketExpiration not met");
+            totalCost = totalCost + ticketPrice;
             _mint(recipient, id, 1, "");
             expirationDate = uint64(block.timestamp) + ticketExpiration;
-            _tickets[id] = Ticket({
-                amountLocked: ticketPrice,
-                expirationDate: expirationDate,
-                issuer: issuer,
-                holder: recipient
-            });
-            emit TicketMinted(
-                id,
-                issuer,
-                recipient,
-                ticketPrice,
-                expirationDate
-            );
+            emit TicketMinted(id, issuer, recipient, ticketPrice, expirationDate);
+            _tickets[id] =
+                Ticket({amountLocked: ticketPrice, expirationDate: expirationDate, issuer: issuer, holder: recipient});
             unchecked {
                 ++i;
             }
         }
 
-        usdc.safeTransferFrom(issuer, address(this), totalCost);
+        token.safeTransferFrom(issuer, address(this), totalCost);
         _currentID = currentID;
     }
 
-    function burnTickets(
-        uint256[] calldata ids,
-        address who
-    ) external nonReentrant returns (uint256 totalValue) {
+    function burnTickets(uint256[] calldata ids, address who) external nonReentrant returns (uint256 totalValue) {
         uint256 length = ids.length;
         uint256 id;
         Ticket memory ticket;
-        for (uint256 i; i < length; ) {
+        for (uint256 i; i < length;) {
             id = ids[i];
             ticket = _tickets[id];
-            require(ticket.amountLocked > 0, "Nonexistent token");
+            require(ticket.amountLocked > 0, "Insufficient token");
             if (uint64(block.timestamp) < ticket.expirationDate) {
-                require(
-                    hasRole(BATTLE_ROLE, _msgSender()),
-                    "UNAUTHORIZED_CALLER"
-                );
+                require(hasRole(BATTLE_ROLE, _msgSender()), "UNAUTHORIZED_CALLER");
                 require(who == ticket.holder, "Incorrect holder");
                 emit TicketClosed(id, ticket.holder, ticket.amountLocked, true);
             } else {
                 require(ticket.issuer == _msgSender(), "UNAUTHORIZED_CALLER");
-                emit TicketClosed(
-                    id,
-                    ticket.holder,
-                    ticket.amountLocked,
-                    false
-                );
+                emit TicketClosed(id, ticket.holder, ticket.amountLocked, false);
             }
             totalValue += ticket.amountLocked;
             _burn(ticket.holder, id, 1);
@@ -150,26 +118,18 @@ contract BattlesTicket is
                 ++i;
             }
         }
-        usdc.safeTransfer(_msgSender(), totalValue);
+        token.safeTransfer(_msgSender(), totalValue);
     }
 
-    function safeTransferFrom(
-        address,
-        address,
-        uint256,
-        uint256,
-        bytes memory
-    ) public pure override(ERC1155) {
+    function safeTransferFrom(address, address, uint256, uint256, bytes memory) public pure override(ERC1155) {
         revert("Non-transferrable token");
     }
 
-    function safeBatchTransferFrom(
-        address,
-        address,
-        uint256[] memory,
-        uint256[] memory,
-        bytes memory
-    ) public pure override(ERC1155) {
+    function safeBatchTransferFrom(address, address, uint256[] memory, uint256[] memory, bytes memory)
+        public
+        pure
+        override(ERC1155)
+    {
         revert("Non-transferrable token");
     }
 
@@ -177,9 +137,12 @@ contract BattlesTicket is
         revert("Non-transferrable token");
     }
 
-    function supportsInterface(
-        bytes4 interfaceId
-    ) public view override(AccessControlEnumerable, ERC1155) returns (bool) {
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        override(AccessControlEnumerable, ERC1155)
+        returns (bool)
+    {
         return super.supportsInterface(interfaceId);
     }
 
