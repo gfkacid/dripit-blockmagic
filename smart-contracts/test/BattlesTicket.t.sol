@@ -39,7 +39,7 @@ contract BattleTicketTest is TestBase {
         _test_Issuance(user5, recipients, ticketPrices, ticketExpirations);
 
         assertEq(ticket.totalSupply(), 2);
-        assertEq(ticket.balanceOf(user6, 1), 1);
+        assertEq(ticket.balanceOf(user6), 1);
         assertEq(token.balanceOf(address(ticket)), minAmount * 2);
 
         IBattlesTicket.Ticket memory ticket_ = ticket.getTicket(1);
@@ -83,7 +83,7 @@ contract BattleTicketTest is TestBase {
         _test_Burner(user1, address(0), tokenIds);
 
         assertEq(ticket.totalSupply(), 1);
-        assertEq(ticket.balanceOf(user6, 1), 0);
+        assertEq(ticket.balanceOf(user6), 0);
         assertEq(token.balanceOf(address(ticket)), minAmount);
         assertEq(token.balanceOf(user1), minAmount * 2);
     }
@@ -128,7 +128,7 @@ contract BattleTicketTest is TestBase {
         assertEq(finalBattleBal - initialBattleBal, initialBattleTicketBal - finalBattleTicketBal);
 
         assertEq(ticket.totalSupply(), 1);
-        assertEq(ticket.balanceOf(user5, 2), 0);
+        assertEq(ticket.balanceOf(user5), 0);
         assertEq(finalBattleTicketBal, minAmount);
 
         ticketIds[0] = 1;
@@ -149,15 +149,18 @@ contract BattleTicketTest is TestBase {
         vm.startPrank(user6);
 
         vm.expectRevert("Non-transferrable token");
-        ticket.safeTransferFrom(user6, user1, 3, 1, "");
+        ticket.transferFrom(user6, user1, 1);
 
         uint256[] memory ids = new uint256[](1);
         ids[0] = 3;
 
         vm.expectRevert("Non-transferrable token");
-        ticket.safeBatchTransferFrom(user6, user1, ids, ids, "");
+        ticket.safeTransferFrom(user6, user1, 3);
 
         vm.expectRevert("Non-transferrable token");
         ticket.setApprovalForAll(user6, true);
+
+        vm.expectRevert("Non-transferrable token");
+        ticket.approve(user6, 1);
     }
 }

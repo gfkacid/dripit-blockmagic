@@ -2,21 +2,27 @@
 
 pragma solidity 0.8.20;
 
-import {ERC1155Supply, ERC1155} from "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Supply.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {ERC721URIStorage} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import {ERC721Enumerable, ERC721} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20, SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IBattlesTicket} from "./interfaces/IBattlesTicket.sol";
 
-contract BattlesTicket is AccessControlEnumerable, ERC1155Supply, IBattlesTicket, ReentrancyGuard {
+contract BattlesTicket is
+    AccessControlEnumerable,
+    ERC721Enumerable,
+    ERC721URIStorage,
+    IBattlesTicket,
+    ReentrancyGuard
+{
     using SafeERC20 for IERC20;
 
     IERC20 public immutable token;
 
-    string public name;
-    string public symbol;
-
     uint256 private _currentID;
+    string _uri;
     uint64 public minExpiry;
 
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
@@ -27,14 +33,13 @@ contract BattlesTicket is AccessControlEnumerable, ERC1155Supply, IBattlesTicket
     constructor(
         string memory _name,
         string memory _symbol,
-        string memory _uri,
+        string memory uri,
         address _token,
         address _controller,
         address _admin,
         uint64 _minExpiry
-    ) ERC1155(_uri) {
-        name = _name;
-        symbol = _symbol;
+    ) ERC721(_name, _symbol) {
+        _uri = uri;
 
         token = IERC20(_token);
         minExpiry = _minExpiry;
@@ -81,7 +86,7 @@ contract BattlesTicket is AccessControlEnumerable, ERC1155Supply, IBattlesTicket
             ticketExpiration = ticketExpirations[i];
             require(ticketExpiration >= minExpiry_, "Min expiry for ticketExpiration not met");
             totalCost = totalCost + ticketPrice;
-            _mint(recipient, id, 1, "");
+            _mint(recipient, id);
             expirationDate = uint64(block.timestamp) + ticketExpiration;
             emit TicketMinted(id, issuer, recipient, ticketPrice, expirationDate);
             _tickets[id] =
@@ -111,8 +116,8 @@ contract BattlesTicket is AccessControlEnumerable, ERC1155Supply, IBattlesTicket
                 require(ticket.issuer == _msgSender(), "UNAUTHORIZED_CALLER");
                 emit TicketClosed(id, ticket.holder, ticket.amountLocked, false);
             }
-            totalValue += ticket.amountLocked;
-            _burn(ticket.holder, id, 1);
+            totalValue = totalValue + ticket.amountLocked;
+            _burn(id);
             delete _tickets[id];
             unchecked {
                 ++i;
@@ -121,32 +126,48 @@ contract BattlesTicket is AccessControlEnumerable, ERC1155Supply, IBattlesTicket
         token.safeTransfer(_msgSender(), totalValue);
     }
 
-    function safeTransferFrom(address, address, uint256, uint256, bytes memory) public pure override(ERC1155) {
+    function approve(address to, uint256 tokenId) public override(ERC721, IERC721) {
         revert("Non-transferrable token");
     }
 
-    function safeBatchTransferFrom(address, address, uint256[] memory, uint256[] memory, bytes memory)
-        public
-        pure
-        override(ERC1155)
-    {
+    function transferFrom(address, address, uint256) public pure override(ERC721, IERC721) {
         revert("Non-transferrable token");
     }
 
-    function setApprovalForAll(address, bool) public pure override(ERC1155) {
+    function setApprovalForAll(address, bool) public pure override(ERC721, IERC721) {
         revert("Non-transferrable token");
     }
 
     function supportsInterface(bytes4 interfaceId)
         public
         view
-        override(AccessControlEnumerable, ERC1155)
+        override(AccessControlEnumerable, ERC721Enumerable, ERC721URIStorage)
         returns (bool)
     {
         return super.supportsInterface(interfaceId);
     }
 
+    function tokenURI(uint256 tokenId) public view override(ERC721, ERC721URIStorage) returns (string memory) {
+        return super.tokenURI(tokenId);
+    }
+
     function getTicket(uint256 id) external view returns (Ticket memory) {
         return _tickets[id];
+    }
+
+    function _increaseBalance(address account, uint128 value) internal override(ERC721, ERC721Enumerable) {
+        super._increaseBalance(account, value);
+    }
+
+    function _update(address to, uint256 tokenId, address auth)
+        internal
+        override(ERC721, ERC721Enumerable)
+        returns (address)
+    {
+        return super._update(to, tokenId, auth);
+    }
+
+    function _baseURI() internal view override returns (string memory) {
+        return _uri;
     }
 }

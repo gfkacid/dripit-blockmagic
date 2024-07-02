@@ -216,7 +216,7 @@ contract Battles is UUPSUpgradeable, AccessControlEnumerableUpgradeable, Dynamic
         uint256[] memory ticketIds,
         bool useNextWindow
     ) external whenNotPaused(this.createBattleWithTickets.selector) {
-        uint256 amount = ticket.burnTickets(ticketIds, creator);
+        uint256 amount = _ticketBurner(ticketIds, creator);
         _createBattle(creator, manifest, option, amount, useNextWindow, ticketIds);
     }
 
@@ -232,7 +232,7 @@ contract Battles is UUPSUpgradeable, AccessControlEnumerableUpgradeable, Dynamic
         external
         whenNotPaused(this.makePredictionWithTickets.selector)
     {
-        uint256 amount = ticket.burnTickets(ticketIds, who);
+        uint256 amount = _ticketBurner(ticketIds, who);
         _makePrediction(who, battleId, option, amount, ticketIds);
     }
 
@@ -267,7 +267,7 @@ contract Battles is UUPSUpgradeable, AccessControlEnumerableUpgradeable, Dynamic
     {
         BattleData storage battle = _battles[battleId];
 
-        uint256 amount = ticket.burnTickets(ticketIds, who);
+        uint256 amount = _ticketBurner(ticketIds, who);
         unchecked {
             if (_userToIdToPrediction[who][battleId].option == BattleOption.Option0) {
                 battle.option0PrizePool = battle.option0PrizePool + amount;
@@ -540,6 +540,10 @@ contract Battles is UUPSUpgradeable, AccessControlEnumerableUpgradeable, Dynamic
         _userToIdToPrediction[creator][id] = UserPrediction({option: option, amount: amount, isClosed: false});
 
         emit MakePrediction(creator, id, amount, option, ticketIds);
+    }
+
+    function _ticketBurner(uint256[] memory ticketIds, address who) private returns (uint256) {
+        return ticket.burnTickets(ticketIds, who);
     }
 
     function _feeAndIncentiveChecks(BattleOption option, uint256 incentive) private pure {
