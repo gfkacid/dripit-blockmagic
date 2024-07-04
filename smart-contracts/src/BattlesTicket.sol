@@ -52,8 +52,17 @@ contract BattlesTicket is
         _setRoleAdmin(BATTLE_ROLE, DEFAULT_ADMIN_ROLE);
     }
 
-    function setMinExpiry(uint64 _minExpiry) external {
+    modifier onlyAdmin() {
         require(hasRole(ADMIN_ROLE, _msgSender()), "UNAUTHORIZED_CALLER");
+        _;
+    }
+
+    function setBaseURI(string memory baseURI) external onlyAdmin {
+        _uri = baseURI;
+        emit BaseURIUpdate(baseURI);
+    }
+
+    function setMinExpiry(uint64 _minExpiry) external onlyAdmin {
         minExpiry = _minExpiry;
         emit SetMinExpiry(_minExpiry);
     }
@@ -126,7 +135,7 @@ contract BattlesTicket is
         token.safeTransfer(_msgSender(), totalValue);
     }
 
-    function approve(address to, uint256 tokenId) public override(ERC721, IERC721) {
+    function approve(address, uint256) public pure override(ERC721, IERC721) {
         revert("Non-transferrable token");
     }
 

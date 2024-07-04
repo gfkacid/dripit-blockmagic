@@ -18,6 +18,8 @@ interface IBattlesTicket {
 
     event SetMinExpiry(uint256 minExpiry);
 
+    event BaseURIUpdate(string baseURI);
+
     function setMinExpiry(uint64 _minExpiry) external;
 
     // function mintTickets(
